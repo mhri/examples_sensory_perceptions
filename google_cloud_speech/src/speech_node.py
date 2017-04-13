@@ -23,7 +23,7 @@ from ctypes import *
 
 import rospy
 from std_msgs.msg import String, Float64, Empty
-from google_cloud_speech.msg import RecognizedWord
+from mhri_social_msgs.msg import RecognizedWord
 
 
 RATE = 16000
