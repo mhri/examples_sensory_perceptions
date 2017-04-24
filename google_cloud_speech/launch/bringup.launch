@@ -1,5 +1,4 @@
 <launch>
     <env name="GOOGLE_APPLICATION_CREDENTIALS" value="$(find google_cloud_speech)/config/service_key.json"/>
-    <node name="speech_node" type="speech_node.py" pkg="google_cloud_speech" output="screen">
-    </node>
+    <node name="speech_node" type="speech_node.py" pkg="google_cloud_speech" output="screen"/>    
 </launch>
