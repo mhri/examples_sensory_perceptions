@@ -9,6 +9,7 @@ import re
 import signal
 import sys
 import threading
+from array import array
 
 
 import google.auth
@@ -28,7 +29,7 @@ from mhri_social_msgs.msg import RecognizedWord
 
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
-DEADLINE_SECS = 60 * 3 + 5
+DEADLINE_SECS = 60 * 5 + 5
 SPEECH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
 
@@ -51,6 +52,7 @@ class GoogleCloudSpeechNode:
 
         self.is_speaking_started = False
         self.published_started = False
+        self.count_silency_time = 0
 
         self.pub_recognized_word = rospy.Publisher('recognized_word', RecognizedWord, queue_size=10)
         self.pub_start_speech = rospy.Publisher('start_of_speech', Empty, queue_size=10)
@@ -97,7 +99,6 @@ class GoogleCloudSpeechNode:
         )
 
         yield cloud_speech_pb2.StreamingRecognizeRequest(streaming_config=streaming_config)
-        # print data_steam
         for data in data_stream:
             yield cloud_speech_pb2.StreamingRecognizeRequest(audio_content=data)
 
@@ -115,7 +116,6 @@ class GoogleCloudSpeechNode:
             frames_per_buffer=chunk,
             stream_callback=functools.partial(self._fill_buffer, buff),
         )
-
         yield self._audio_data_generator(buff)
 
         audio_stream.stop_stream()
@@ -124,6 +124,17 @@ class GoogleCloudSpeechNode:
         audio_interface.terminate()
 
     def _fill_buffer(self, buff, in_data, frame_count, time_info, status_flags):
+        data_chunk = array('h', in_data)
+        if max(data_chunk) < 1000:
+            self.count_silency_time += 1
+            if self.count_silency_time > 50:
+                self.pub_silency_detected.publish()
+                self.count_silency_time = 0
+                self.recognize_stream.cancel()
+                rospy.logdebug("Silency detected...")
+        else:
+            self.count_silency_time = 0
+
         buff.put(in_data)
         return None, pyaudio.paContinue
 
@@ -159,23 +170,19 @@ class GoogleCloudSpeechNode:
             self.is_speaking_started = True
             if not self.published_started:
                 self.pub_start_speech.publish()
+                rospy.logdebug("Speech started...")
                 self.published_started = True
-
 
             result = resp.results[0]
             transcript = result.alternatives[0].transcript
-            confidence = result.alternatives[0].confidence
-            overwrite_chars = ' ' * max(0, num_chars_printed - len(transcript))
+            confidence = result.alternatives[0].confidence            
 
             if not result.is_final:
-                sys.stdout.write(transcript + overwrite_chars + '\r')
-                sys.stdout.flush()
-
-                num_chars_printed = len(transcript)
-
+                rospy.logdebug("I'm listening...")
             else:
                 self.is_speaking_started = False
                 self.pub_end_speech.publish()
+                rospy.logdebug("Speech stoped...")
                 self.published_started = False
 
                 result = RecognizedWord()
